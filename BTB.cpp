@@ -43,23 +43,24 @@ void BTB::ChangeBit(int remainder, int  LRU[3]){
 void BTB::ChangeLRU(int insaddr){
   for(int i=0; i<ROW; i++){
     if(BTBuffer[i][0] == insaddr){
-      int result = i/4;
-      int remainder = i % 4;
+      int set = i/4;
+      int linenumber;
+      linenumber = i;
       // line 0-3
-      if(result == 0){
-        ChangeBit(remainder, LRU0);
+      if(set == 0){
+        ChangeBit(linenumber, LRU0);
       }
       // line 4-7
-      else if(result == 1){
-        ChangeBit(remainder, LRU1);
+      else if(set == 1){
+        ChangeBit(linenumber-4, LRU1);
       }
       //line 8-11
-      else if(result == 2){
-        ChangeBit(remainder, LRU2);
+      else if(set == 2){
+        ChangeBit(linenumber-8, LRU2);
       }
       // line 12-15
-      else if(result == 3){
-        ChangeBit(remainder, LRU3);
+      else if(set == 3){
+        ChangeBit(linenumber-12, LRU3);
       }
     } 
   }
@@ -105,7 +106,10 @@ int BTB::checkBTB(int insaddr, int targetaddr){
 }
 
 
-void BTB::ChangePredictor(int insaddr, int predictor){
+void BTB::ChangePredictor(int insaddr, bool taken){
+  int predictor;
+  if(taken == true) predictor = 1;
+  else if(taken == false) predictor = 0;
   for(int i=0; i<ROW; i++){
     if(BTBuffer[i][0] == insaddr){
       BTBuffer[i][2] = predictor;
@@ -157,5 +161,26 @@ void BTB::UpdatePredictor(int insaddr, int targetaddr, int predictor){
   BTBuffer[linenumber][1] = targetaddr;
   BTBuffer[linenumber][2] = predictor;
 }
+
+int BTB::checkpredictor(int insaddr){
+  int result;
+  for(int i=0; i< ROW; i++){
+    if(BTBuffer[i][0] == insaddr){
+      result = BTBuffer[i][2];
+    }
+  }
+  return result;
+}
+
+int BTB::checktargetaddr(int insaddr){
+  int result;
+  for(int i=0; i< ROW; i++){
+    if(BTBuffer[i][0] == insaddr){
+      result = BTBuffer[i][1];
+    }
+  }
+  return result;
+}
+
 
 

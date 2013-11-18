@@ -29,7 +29,9 @@ void Tomasulo::parseinputfile(string filename){
         }
       }
     }
-
+    if(DEBUG){
+cout << "inscounter: " << inscounter << endl;
+    }
 }
 
 Instruction Tomasulo::parseinstruction(string instruction){
@@ -103,23 +105,21 @@ int Tomasulo::caltarget(int PC, string instruction, string op){
 }
 
 //PC = insaddr
-int Tomasulo::insfetch(int PC, string instruction){
+int Tomasulo::insfetch(int cycle, int PC, string instruction){
     Instruction ins;
     int nextPC;
     int targetaddr = 0;
  
  
 
-    if(DEBUG){
-      cout << "PC: " << PC << endl;
-    }
-  //TODO: fetch only 1 ins
+  // fetch only 1 ins
     ins = parseinstruction(instruction);
+    ins.push_cycle = cycle;
     
     IQ->push_back(ins);
     
-    inscounter--; //count down to fetched instruction
-    cout << "Inscounter " <<inscounter << endl;
+   // inscounter--; //count down to fetched instruction
+   // cout << "Inscounter " <<inscounter << endl;
     
     //if branches or jump, fetch nextPC from BTB
     if(!ins.op.compare("BNE")|| !ins.op.compare("BEQ") || !ins.op.compare("BGEZ") || !ins.op.compare("BGTZ") || !ins.op.compare("BLTZ") ||!ins.op.compare("BLEZ") ||!ins.op.compare("J")){
@@ -132,20 +132,16 @@ int Tomasulo::insfetch(int PC, string instruction){
     }
     
 
-    fetchcounter++;  //indicate next fetch instruction
+   // fetchcounter++;  //indicate next fetch instruction
 
-    if(DEBUG){
-      cout << "nextPC: " << nextPC << endl;
-      cout << "fetchcounter " <<fetchcounter << endl;
-    }
     return nextPC;
 }
 
 
 
 //check if inscounter = 0, if yes, no more instruction to fetch
-bool Tomasulo::checkfetch(){
-  if(inscounter == 0){
+bool Tomasulo::checkfetch(int PC){
+  if(PC > 600 + 4 * (inscounter-1)){
     return false;
   }
   return true;
@@ -153,7 +149,7 @@ bool Tomasulo::checkfetch(){
 
 //check if RScounter = 0, if yes, stall.
 bool Tomasulo::rs_available(){
-  if(RSlimit == 0){
+  if(RS->size() == 8){
     return false;
   }
   return true;
@@ -162,7 +158,7 @@ bool Tomasulo::rs_available(){
 
 //check if ROBcounter = 0, if yes, stall.
 bool Tomasulo::rob_available(){
-  if(ROBlimit == 0){
+  if(ROB->size() == 6){
     return false;
   }
   return true;
@@ -184,25 +180,25 @@ void Tomasulo::issuevj(RScontent * rs_entry, int rs, int rs_robid, bool value_re
       if(value_ready){
         //give value to Vj in Rs, set Qj = 0
         rs_entry->Vj = rs_robvalue;
-        rs_entry->Vj_ok = true;
         rs_entry->Qj = 0;
       }
       else {
         //if not ready, give the reorder buffer id, which hold the value to Qj
         rs_entry->Qj = rs_robid;
-        rs_entry->Vj_ok = false;
         rs_entry->Vj = 1111;  
       } 
     }
     //if reg[rs] is not busy, value available
     else {
       rs_entry->Vj = (*Register)[rs].value;
-      rs_entry->Vj_ok = true;
       rs_entry->Qj = 0;
     }
 }
 
 void Tomasulo::issuevk(RScontent * rs_entry, int rt, int rt_robid, bool value_ready, int rt_robvalue){
+  
+  cout << "R" << rt << "is " << (*Register)[rt].Busy << endl;
+
   if((*Register)[rt].Busy){
     rt_robid = (*Register)[rt].h;
     deque<ROBcontent>::iterator robit;
@@ -216,25 +212,22 @@ void Tomasulo::issuevk(RScontent * rs_entry, int rt, int rt_robid, bool value_re
       if(value_ready){
         //give value to Vj in Rs, set Qj = 0
         rs_entry->Vk = rt_robvalue;
-        rs_entry->Vk_ok = true;
         rs_entry->Qk = 0;
       }
       else {
         //if not ready, give the reorder buffer id, which hold the value to Qj
         rs_entry->Qk = rt_robid;
-        rs_entry->Vk_ok = false;
         rs_entry->Vk = 1111;  
       } 
     }
     //if reg[rs] is not busy, value available
     else {
       rs_entry->Vk = (*Register)[rt].value;
-      rs_entry->Vk_ok = true;
       rs_entry->Qk = 0;
     }
 }
 //add instruction into RS
-void Tomasulo::rs_rob_add(Instruction instruction){
+void Tomasulo::rs_rob_add(Instruction instruction, int cycle){
   string op = instruction.op;
   RScontent rs_entry;
   ROBcontent rob_entry;
@@ -250,7 +243,14 @@ void Tomasulo::rs_rob_add(Instruction instruction){
   rs_entry.op = op; //opcode
   rob_entry.op = instruction.op;
   rob_id = ROBcounter;
-  
+  rob_entry.current_status_cycle = cycle;
+  rs_entry.current_status_cycle = cycle;
+  rs_entry.value = 1111;
+
+  rob_entry.addr = 1111;
+  rob_entry.source_ok = false;
+  rob_entry.source = 1111;
+
   if(!op.compare("SW")){
     rt = StoI(instruction.rt);
     rs = StoI(instruction.rs.substr(1));
@@ -268,7 +268,7 @@ void Tomasulo::rs_rob_add(Instruction instruction){
     rs_entry.Dest = rob_id;
 
     //destination is vj+a
-    rob_entry.Dest = instruction.rt + "+" + instruction.rs;
+    rob_entry.Dest = instruction.rd;
 
     rs_entry.A = rt; 
   }
@@ -284,7 +284,6 @@ void Tomasulo::rs_rob_add(Instruction instruction){
     issuevj(&rs_entry, rs, rs_robid, value_ready, rs_robvalue);    
     //no vk
     rs_entry.Vk = 1111;
-    rs_entry.Vk_ok = true;
     rs_entry.Qk = 0;
     //other inserts
     rs_entry.Busy = true;
@@ -298,16 +297,17 @@ void Tomasulo::rs_rob_add(Instruction instruction){
     rs_entry.A = rt;
   }
   else if(!op.compare("ADDI") || !op.compare("ADDIU") || !op.compare("SLTI")){
-    rt = StoI(instruction.rt);  //imm
+    cout << "TEST test test test test" << endl;
+    
+    rt = atoi(instruction.rt.c_str());  //imm
     rs = StoI(instruction.rs.substr(1));//source register
     rd = StoI(instruction.rd.substr(1));//destination register
-
+    cout << rt << "/" << rs << "/" << rd << endl;
     rob_entry.ins = instruction.op + " " + instruction.rd + ", " + instruction.rs + ", #" + instruction.rt;
     rs_entry.ins = instruction.op + " " + instruction.rd + ", " + instruction.rs + ", #" + instruction.rt;
     //insert vj: srouce value 1 
     issuevj(&rs_entry, rs, rs_robid, value_ready, rs_robvalue);    
     rs_entry.Vk = rt;
-    rs_entry.Vk_ok = true;
     rs_entry.Qk = 0;
 
     //other inserts
@@ -324,13 +324,13 @@ void Tomasulo::rs_rob_add(Instruction instruction){
   else if(!op.compare("BEQ") || !op.compare("BNE")){
     rd = StoI(instruction.rd);  //offset
     rs = StoI(instruction.rs.substr(1));//source register 1
-    rt = StoI(instruction.rd.substr(1));//source  register 2
-
-    rob_entry.ins = instruction.op + " " + instruction.rs + ", " + instruction.rt + "#" + instruction.rd;
-    rs_entry.ins = instruction.op + " " + instruction.rs + ", " + instruction.rt + "#" + instruction.rd;
+    rt = StoI(instruction.rt.substr(1));//source  register 2
+    
+    rob_entry.ins = instruction.op + " " + instruction.rs + ", " + instruction.rt + ", #" + instruction.rd;
+    rs_entry.ins = instruction.op + " " + instruction.rs + ", " + instruction.rt + ", #" + instruction.rd;
     
     //insert vj: srouce value 1 
-    issuevj(&rs_entry, rs, rs_robid, value_ready, rs_robvalue);    
+    issuevj(&rs_entry, rs, rs_robid, value_ready, rs_robvalue); 
     issuevk(&rs_entry, rt, rt_robid, value_ready, rt_robvalue);    
 
     //other inserts
@@ -346,7 +346,7 @@ void Tomasulo::rs_rob_add(Instruction instruction){
   
   //compare to 0
   else if(!op.compare("BGEZ") || !op.compare("BGTZ") || !op.compare("BLEZ") || !op.compare("BLTZ")){
-    rt = StoI(instruction.rd);  //offset
+    rt = StoI(instruction.rt);  //offset
     rs = StoI(instruction.rs.substr(1));//source register 1
 
     rob_entry.ins = instruction.op + " " + instruction.rs + ", " + "#" + instruction.rt;
@@ -361,7 +361,6 @@ void Tomasulo::rs_rob_add(Instruction instruction){
 
     //branch offset value
     rs_entry.Vk = rt;
-    rs_entry.Vk_ok = true;
     rs_entry.Qk = 0;
 
     //destination register
@@ -381,11 +380,9 @@ void Tomasulo::rs_rob_add(Instruction instruction){
 
     //jump target
     rs_entry.Vj = rs;
-    rs_entry.Vj_ok = true;
     rs_entry.Qj = 0;
     
     rs_entry.Vk = 1111;
-    rs_entry.Vk_ok = true;
     rs_entry.Qk = 0;
 
     //destination register
@@ -408,7 +405,6 @@ void Tomasulo::rs_rob_add(Instruction instruction){
     rs_entry.Busy = true;
     rs_entry.Dest = rob_id;
     rs_entry.Vk = rs;
-    rs_entry.Vk_ok = true;
     rs_entry.Qk = 0;
 
     //destination register
@@ -422,20 +418,10 @@ void Tomasulo::rs_rob_add(Instruction instruction){
   else if(!op.compare("NOP") || !op.compare("BREAK")){
   
     rob_entry.ins = instruction.op;
-    rs_entry.ins = instruction.op;
-  
+    rob_entry.Ready = true;
   //other inserts
-    rs_entry.Busy = true;
-    rs_entry.Dest = rob_id;
-    rs_entry.Vk = 1111;
-    rs_entry.Vk_ok = true;
-    rs_entry.Qk = 0;
-    rs_entry.Vj = 1111;
-    rs_entry.Vj_ok = true;
-    rs_entry.Qj = 0;
 
     //destination register
-    rs_entry.A = 1111;
     rob_entry.Dest = op;
   }
   else {
@@ -463,7 +449,10 @@ void Tomasulo::rs_rob_add(Instruction instruction){
 
 
   }
-  RS->push_back(rs_entry);
+  //not NOP or BREAK, push into rs
+  if(op.compare("NOP") && op.compare("BREAK")){
+    RS->push_back(rs_entry);
+  }
   ROB->push_back(rob_entry);
   ROBcounter++;
   ROBlimit--;
@@ -489,7 +478,8 @@ int Tomasulo::calalu(string op, int Vj, int Vk){
   else if(!op.compare("SRL")){
     result = (int)(((unsigned int)Vj) /pow((double)2, (double)Vk));
   }
-  else {
+  //TODO
+  else if(!op.compare("ADDI") || !op.compare("ADD")){
     result = Vj + Vk;
   }
   return result;
@@ -502,37 +492,39 @@ int Tomasulo::caladdr(int Vj, int A){
   return result;
 }
 
-bool Tomasulo::calbranch(string op, int Vj, int Vk){
+bool Tomasulo::checkbranch(string op, int Vj, int Vk){
   bool result;
   if(!op.compare("BEQ")){
     if(Vj == Vk){
       result = true;
     }
-    result = false;
+    else {
+      result = false;
+    }
   }
   else if(!op.compare("BNE")){
     if(Vj != Vk){
       result = true;
     }
-    result = false;
+    else result = false;
   }
   else if(!op.compare("BGEZ")){
     if(Vj >= 0){
       result = true;
     }
-    result = false;
+    else result = false;
   }
   else if(!op.compare("BGTZ")){
     if(Vj > 0) result = true;
-    result = false;
+    else result = false;
   }
   else if(!op.compare("BLEZ")){
     if(Vj <= 0) result = true;
-    result = false;
+    else result = false;
   }
   else if(!op.compare("BLTZ")){
     if(Vj < 0) result = true;
-    result = false;
+    else result = false;
   }
   else if(!op.compare("J")){
     result = true;
@@ -540,24 +532,174 @@ bool Tomasulo::calbranch(string op, int Vj, int Vk){
   return result;
 }
 
+int Tomasulo::calbranch(string op, bool taken, int insaddr, int A, int Vj, int Vk){
+  int result;
+  if(!op.compare("BEQ") || !op.compare("BNE")){
+    if(taken == true){
+      result = A+insaddr+4;
+    }
+    else {
+      result = insaddr + 4;
+    }
+  }
+  else if(!op.compare("BGEZ")|| !op.compare("BLEZ") || !op.compare("BLTZ") || !op.compare("BGTZ")){
+    if(taken == true){
+      result = Vk + insaddr + 4;
+    }
+    else {
+      result = insaddr + 4;
+    }
+  }
+  else if(!op.compare("J")){
+    result = Vj;
+  }
+  return result;
+}
+
+void Tomasulo::flushout_rs_rob(int rob_id){
+  bool flag = false;
+  deque<ROBcontent>::iterator robit;
+  deque<RScontent>::iterator rsit;
+  cout << "Enter." << endl;
+  for(robit = ROB->begin(); robit != ROB->end();){
+    if((*robit).Entry == rob_id){
+      flag = true;
+      robit ++;
+    }
+    else if(flag == true){
+      cout << "Enter111." << endl;
+      string dest = (*robit).Dest;
+      if(!dest.substr(0,1).compare("R")){
+        int reg_id = atoi(dest.substr(1).c_str());
+        (*Register)[reg_id].Busy = false;
+        (*Register)[reg_id].h = -1;
+        (*Register)[reg_id].value = 0;
+      }
+      int rsdest = (*robit).Entry;
+      cout << "Enter222." << endl;
+      for(rsit = RS->begin(); rsit != RS->end();){
+        if((*rsit).Dest == rsdest){
+          RS->erase(rsit);
+        }
+        else {
+          rsit ++;
+        }
+      }
+      ROB->erase(robit);
+      cout << "Enter333." << endl;
+    }
+    else {
+      robit ++;
+    }
+  }
+  cout << "Out." << endl;
+}
+
+void Tomasulo::erasers(int rob_id){
+  deque<RScontent>::iterator it;
+  for(it = RS->begin(); it != RS->end(); it++){
+    if((*it).Dest != rob_id){
+      RS->erase(it);
+      it = RS->begin();
+    }
+  }
+}
+bool Tomasulo::checkpreviousSL(int rob_id){
+  
+  deque<ROBcontent>::iterator it;
+  for(it = ROB->begin(); it!= ROB->end(); it++){
+    if((*it).Entry == rob_id){
+      return true;
+    }
+    if(!(*it).op.compare("SW") && (*it).state != Exe && (*it).state != WR1 && (*it).state != Commit){
+      return false;
+    }
+    if(!(*it).op.compare("LW") &&(*it).state != Exe && (*it).state != WR1 && (*it).state != WR2 && (*it).state != Commit){
+      return false;
+    }
+  }
+  cerr << "Not found in ROD." << endl;
+  return false;
+}
+//update RS and SW in ROB, ROB(SW).dest = rd
+void Tomasulo::updateRS(int rob_id, int value){
+  deque<RScontent>::iterator it;
+  for(it = RS->begin(); it != RS->end(); it++){
+    if((*it).Qj == rob_id){
+      (*it).Vj = value;
+      (*it).Qj = 0;
+    }
+    if((*it).Qk == rob_id){
+      (*it).Vk = value;
+      (*it).Qk = 0;
+    }
+  }
+  //update ROB SW source value
+  deque<ROBcontent>::iterator rit;
+  for(rit = ROB->begin(); rit != ROB->end(); rit++){
+    if(!(*rit).op.compare("SW") && (*rit).source == rob_id && (*rit).source_ok == false){
+      (*rit).value = value;
+      (*rit).source_ok = true;
+    }
+  }
+}
+
+bool Tomasulo::checkROB(int rob_id, int addr){
+
+  deque<ROBcontent>::iterator it;
+  for(it = ROB->begin(); it != ROB->end(); it++){
+    if((*it).Entry == rob_id){
+      return false;
+    }
+    if(!(*it).op.compare("SW") && (*it).addr == addr){
+      return true;
+    }
+  }
+  cerr << "Not found in ROB" << endl;
+  return true;
+}
+
+void Tomasulo::updatelaterLW(int addr, int cycle){
+
+  deque<ROBcontent>::iterator rit;
+  deque<RScontent>::iterator rsit;
+  for(rit = ROB->begin(); rit != ROB->end(); rit++){
+    if((*rit).op.compare("LW") && (*rit).state == Exe && (*rit).addr == addr){
+      for(rsit = RS->begin(); rsit != RS->end(); rsit++){
+        if((*rsit).Dest == (*rit).Entry){
+          (*rsit).value = Mem[addr];
+          (*rit).state = WR1;
+          (*rit).current_status_cycle = cycle;
+        }
+      }
+      break;
+    }
+  }
+}
 void Tomasulo::print_status(int cycle){
       cout << "Cycle <" << cycle << ">" << endl;
       cout << "IQ:" << endl;
       deque<Instruction>::iterator iqiter;
+      if(!IQ->empty()){
       for(iqiter = IQ->begin(); iqiter != IQ->end(); iqiter++){
           cout << (*iqiter).op << " "<<(*iqiter).rd<<" " << (*iqiter).rs<<" " << (*iqiter).rt << endl;
+      }
       }
       cout << endl;
       cout << "RS:" << endl;
       deque<RScontent>::iterator rsiter;
+      if(!RS->empty()){
       for(rsiter = RS->begin(); rsiter != RS->end(); rsiter++){
-          cout << (*rsiter).ins<<" " << (*rsiter).Vk << endl;
+          cout << (*rsiter).ins << " //: Vj-" << (*rsiter).Vj << " Vk-" << (*rsiter).Vk << " Qj-" << (*rsiter).Qj << " Qk-" << (*rsiter).Qk << " A-" << (*rsiter).A << " dest-" << (*rsiter).Dest << " value-" << (*rsiter).value << " busy-"<< (*rsiter).Busy << " C_cyle-" << (*rsiter).current_status_cycle << endl;
+      }
       }
       cout << endl;
       cout << "ROB:" << endl;
       deque<ROBcontent>::iterator robiter;
       for(robiter = ROB->begin(); robiter != ROB->end(); robiter++){
-          cout << (*robiter).ins<<" " << (*robiter).Dest << " " << (*robiter).state  << endl;
+      if(!ROB->empty()){
+        cout << (*robiter).ins<< " //:entryid" << (*robiter).Entry << " addr-" << (*robiter).addr <<" state-" << (*robiter).state << " dest-" << (*robiter).Dest << " value-" << (*robiter).value << " Ready-" << (*robiter).Ready <<" C_cycle-"<< (*robiter).current_status_cycle<< endl;
+      }
       }
       cout << endl;
       cout << "BTB: " << endl;
@@ -568,8 +710,24 @@ void Tomasulo::print_status(int cycle){
       }
 
       cout << endl;
-      //TODO
-      cout << ""<< endl;
+      cout << "Register: "<< endl;
+      vector<Reg>::iterator regit;
+      int i=0;
+      for(int i=0; i< 4; i++){
+        cout << "R" << i*8 << ": ";
+        for(int j=0; j<8; j++){
+          cout << " : v-" <<(*Register)[i*8 + j].value << " h/" << (*Register)[i*8+j].h << " b-" << (*Register)[i*8+j].Busy;
+        }
+        cout << endl;
+      }
+      cout << endl;
+      cout << "716: "<< endl;
+      for(int j=0; j<datacounter; j++){
+        cout << Mem[j] << " ";
+      }
+      cout << endl;
+
+    
       cout << "---------------------------------------------" << endl;
     
 

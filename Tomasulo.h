@@ -5,6 +5,7 @@
 #include "CFS.h"
 #include "BTB.h"
 #include <cmath>
+#include <stdlib.h>
 using namespace std;
 
 #define NO_USE 1111
@@ -19,6 +20,7 @@ struct Instruction {
   string rd; //dest register
   string rs; //source register
   string rt; //source register
+  int push_cycle;
 };
 
 struct RScontent {
@@ -31,11 +33,11 @@ struct RScontent {
   int Qk;
   int Dest;
   int A;
-  bool Vj_ok;
-  bool Vk_ok;
+  int value;
+  int current_status_cycle;
 };
 
-enum Rob_state {Issue, Exe, WriteBack, Commit};
+enum Rob_state {Issue, Exe, WR1,WR2, Commit};//WR2 for load second step in write result stage
 struct ROBcontent {
   int Entry;
   string op;
@@ -44,6 +46,10 @@ struct ROBcontent {
   string Dest;
   int value;
   bool Ready; 
+  int current_status_cycle;
+  int addr;
+  bool source_ok;
+  int source;
 };
 struct AddrInspair {
   int insaddr;
@@ -102,16 +108,24 @@ class Tomasulo {
 
     Instruction parseinstruction(string instruction); // divide an instruction into op, rd, rs, rt
     int caltarget(int PC, string instruction, string op); //cal target addrress for branch
-    int insfetch(int PC, string instruction); //push  one instruction into IQ:w
-    bool checkfetch(); //check if there are more instructions to fetch
+    int insfetch(int cycle, int PC, string instruction); //push  one instruction into IQ:w
+    bool checkfetch(int PC); //check if there are more instructions to fetch
     bool rs_available(); //check if there's any empty slot in RS
     bool rob_available(); //check if there's any empty slot in ROB
     void issuevj(RScontent * rs_entry, int rs, int rs_robid, bool value_ready, int rs_robvalue); 
     void issuevk(RScontent * rs_entry, int rt, int rt_robid, bool value_ready, int rt_robvalue); 
-    void rs_rob_add(Instruction ins); //add instruction into RS
+    void rs_rob_add(Instruction ins, int cycle); //add instruction into RS
     int calalu(string op, int operandA, int operandB); //calculation
     int caladdr(int Vj, int A); //cal mem address
-    bool calbranch(string op, int Vj, int Vk);//check if branch taken or not taken
-    void print_status(int cycle);//print status after each cycle
+    bool checkbranch(string op, int Vj, int Vk);//check if branch taken or not taken
+    int calbranch(string op, bool btaken, int insaddr, int A, int Vj, int Vk);  //EXE stage, return nextPC
+    void flushout_rs_rob(int id);//id is rob_id
 
+    void erasers(int id);
+    bool checkpreviousSL(int robid); 
+    void updateRS(int rob_id, int value); //update RS 
+    bool checkROB(int rob_id, int addr); //check address dependence
+    void updatelaterLW(int addr, int cycle);
+    void print_status(int cycle);//print status after each cycle
+    
 };
