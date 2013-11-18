@@ -1,7 +1,6 @@
 #include "Tomasulo.h"
 #include <algorithm>
 #include "assembly.h"
-#include "Tomasulo.h"
 using namespace std;
 
 int main(int argc, char ** argv){
