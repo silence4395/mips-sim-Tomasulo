@@ -80,26 +80,40 @@ int BTB::checkBTB(int insaddr, int targetaddr){
     }
   }
   int set;
-  set = insaddr % 4;
+  set = (insaddr/4) % 4;
   int line;
-  line = (insaddr/4) % 4;
+  if(set == 0){
+    line = 0;
+  }
   if(set == 1) {
-    line = line+4;
+    line = 4;
   }
   else if(set == 2) {
-    line = line+8;
+    line = 8;
   }
   else if(set == 3){ 
-    line = line+12;
+    line = 12;
   }
 
+  bool flag = false;
+  int insertline;
+
+  for(int i=line; i<line+4; i++){
+    if(BTBuffer[line][0] == -1 && flag == false){
+      flag = true;
+      insertline = i;
+    }
+    else if(BTBuffer[line][0] != -1 && flag == false){
+      insertline = -1;
+    }
+  }
   //entry not occupied
-  if(BTBuffer[line][0] == -1){
-    BTBuffer[line][0] = insaddr;
-    BTBuffer[line][1] = targetaddr;
+  if(insertline != -1){
+    BTBuffer[insertline][0] = insaddr;
+    BTBuffer[insertline][1] = targetaddr;
   }
       //entry occupied
-  else if(BTBuffer[line][0] != -1){
+  else if(insertline == -1){
     UpdatePredictor(insaddr, targetaddr, -1);
   }
   return insaddr+4;
@@ -138,7 +152,7 @@ int BTB::GetLRULineinSet(int LRU[3]){
 int BTB::GetLRULine(int insaddr){
   //set 0
   
-  int set = insaddr % 4;
+  int set = (insaddr/4) % 4;
   int line;
   if(set == 0){
     line = GetLRULineinSet(LRU0);

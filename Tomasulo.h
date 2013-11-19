@@ -1,15 +1,18 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <deque>
 #include "CFS.h"
 #include "BTB.h"
+#include <climits>
 #include <cmath>
 #include <stdlib.h>
 using namespace std;
 
 #define NO_USE 1111
-#define DEBUG 1
+#define DEBUG 0
 #define NUM_REG 32
 #define NUM_RS 8
 #define NUM_ROB 6
@@ -21,6 +24,7 @@ struct Instruction {
   string rs; //source register
   string rt; //source register
   int push_cycle;
+  string ins;
 };
 
 struct RScontent {
@@ -127,5 +131,5 @@ class Tomasulo {
     bool checkROB(int rob_id, int addr); //check address dependence
     void updatelaterLW(int addr, int cycle);
     void print_status(int cycle);//print status after each cycle
-    
+    void print(string outputfilename, int cycle);    
 };

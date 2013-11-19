@@ -115,11 +115,10 @@ int Tomasulo::insfetch(int cycle, int PC, string instruction){
   // fetch only 1 ins
     ins = parseinstruction(instruction);
     ins.push_cycle = cycle;
-    
+    ins.ins = instruction;
+
     IQ->push_back(ins);
     
-   // inscounter--; //count down to fetched instruction
-   // cout << "Inscounter " <<inscounter << endl;
     
     //if branches or jump, fetch nextPC from BTB
     if(!ins.op.compare("BNE")|| !ins.op.compare("BEQ") || !ins.op.compare("BGEZ") || !ins.op.compare("BGTZ") || !ins.op.compare("BLTZ") ||!ins.op.compare("BLEZ") ||!ins.op.compare("J")){
@@ -197,7 +196,6 @@ void Tomasulo::issuevj(RScontent * rs_entry, int rs, int rs_robid, bool value_re
 
 void Tomasulo::issuevk(RScontent * rs_entry, int rt, int rt_robid, bool value_ready, int rt_robvalue){
   
-  cout << "R" << rt << "is " << (*Register)[rt].Busy << endl;
 
   if((*Register)[rt].Busy){
     rt_robid = (*Register)[rt].h;
@@ -297,12 +295,10 @@ void Tomasulo::rs_rob_add(Instruction instruction, int cycle){
     rs_entry.A = rt;
   }
   else if(!op.compare("ADDI") || !op.compare("ADDIU") || !op.compare("SLTI")){
-    cout << "TEST test test test test" << endl;
     
     rt = atoi(instruction.rt.c_str());  //imm
     rs = StoI(instruction.rs.substr(1));//source register
     rd = StoI(instruction.rd.substr(1));//destination register
-    cout << rt << "/" << rs << "/" << rd << endl;
     rob_entry.ins = instruction.op + " " + instruction.rd + ", " + instruction.rs + ", #" + instruction.rt;
     rs_entry.ins = instruction.op + " " + instruction.rd + ", " + instruction.rs + ", #" + instruction.rt;
     //insert vj: srouce value 1 
@@ -462,7 +458,7 @@ void Tomasulo::rs_rob_add(Instruction instruction, int cycle){
 
 int Tomasulo::calalu(string op, int Vj, int Vk){
   int result;
-  if(!op.compare("SLTI")){
+  if(!op.compare("SLTI") && !op.compare("SLT")){
     //If rs < imm, rt = 1; else rt =0
     if(Vj < Vk){
       result = 1;
@@ -478,10 +474,41 @@ int Tomasulo::calalu(string op, int Vj, int Vk){
   else if(!op.compare("SRL")){
     result = (int)(((unsigned int)Vj) /pow((double)2, (double)Vk));
   }
-  //TODO
-  else if(!op.compare("ADDI") || !op.compare("ADD")){
+  else if(!op.compare("ADDIU") || !op.compare("ADDU")){
     result = Vj + Vk;
   }
+  else if(!op.compare("ADDI") || !op.compare("ADD")){
+    double a = Vj + Vk;
+    if(a > INT_MAX || a < INT_MIN){
+      cerr << "Overflow Exception....." << endl;
+    }
+    else {
+      result = Vj + Vk;
+    }
+  }
+  else if(!op.compare("AND")){
+    result = Vj & Vk;
+  }
+  else if(!op.compare("OR")){
+    result = Vj | Vk;
+  }
+  else if(!op.compare("XOR")){
+    result = Vj ^ Vk;
+  }
+  else if(!op.compare("NOR")){
+    result = ~(Vj|Vk);
+  }
+  else if(!op.compare("SUB") || !op.compare("SUBU")){
+    result = Vj - Vk;
+  }
+  else if(!op.compare("SLTU")){
+    unsigned int a = (unsigned int)Vj;
+    unsigned int b = (unsigned int)Vk;
+    if(a > b) result = 1;
+    else result = 0;
+  }
+
+
   return result;
 }
 
@@ -560,14 +587,12 @@ void Tomasulo::flushout_rs_rob(int rob_id){
   bool flag = false;
   deque<ROBcontent>::iterator robit;
   deque<RScontent>::iterator rsit;
-  cout << "Enter." << endl;
   for(robit = ROB->begin(); robit != ROB->end();){
     if((*robit).Entry == rob_id){
       flag = true;
       robit ++;
     }
     else if(flag == true){
-      cout << "Enter111." << endl;
       string dest = (*robit).Dest;
       if(!dest.substr(0,1).compare("R")){
         int reg_id = atoi(dest.substr(1).c_str());
@@ -576,7 +601,6 @@ void Tomasulo::flushout_rs_rob(int rob_id){
         (*Register)[reg_id].value = 0;
       }
       int rsdest = (*robit).Entry;
-      cout << "Enter222." << endl;
       for(rsit = RS->begin(); rsit != RS->end();){
         if((*rsit).Dest == rsdest){
           RS->erase(rsit);
@@ -586,13 +610,11 @@ void Tomasulo::flushout_rs_rob(int rob_id){
         }
       }
       ROB->erase(robit);
-      cout << "Enter333." << endl;
     }
     else {
       robit ++;
     }
   }
-  cout << "Out." << endl;
 }
 
 void Tomasulo::erasers(int rob_id){
@@ -732,3 +754,58 @@ void Tomasulo::print_status(int cycle){
     
 
 }
+void Tomasulo::print(string outputfilename, int cycle){
+   
+  ofstream out(outputfilename.c_str(), ios::out | ios::app);
+    
+    out << "Cycle <" << cycle << ">" << endl;
+    out << "IQ:" << endl;
+    deque<Instruction>::iterator iqiter;
+    for(iqiter = IQ->begin(); iqiter != IQ->end(); iqiter++){
+        out << "[" << (*iqiter).ins << "]" << endl;
+    }
+    out << "RS:" << endl;
+    deque<RScontent>::iterator rsiter;
+    for(rsiter = RS->begin(); rsiter != RS->end(); rsiter++){
+        out <<"[" << (*rsiter).ins << "]"<< endl;
+    }
+    out << "ROB:" << endl;
+    deque<ROBcontent>::iterator robiter;
+    for(robiter = ROB->begin(); robiter != ROB->end(); robiter++){
+        out << "[" << (*robiter).ins << "]" << endl;
+    }
+    out << "BTB: " << endl;
+    for(int i=0; i<ROW; i++){
+        if(btbuffer->BTBuffer[i][0] != -1){
+            out << "[Set ";
+            if(i>=0 && i< 4) out << "0";
+            else if(i>=4 && i<8) out << "1";
+            else if(i>=8 && i<12) out << "2";
+            else if(i>=12 && i<16) out << "3";
+            out << "]:<" << btbuffer->BTBuffer[i][0] << " " << btbuffer->BTBuffer[i][1] << " ";
+            if(btbuffer->BTBuffer[i][2] == -1){
+                out << "NotSet>"<< endl;
+            }
+            else {
+               out << btbuffer->BTBuffer[i][2] << ">" << endl;
+            }
+        }
+    }
+    out << "Register: "<< endl;
+    vector<Reg>::iterator regit;
+    int i=0;
+    for(int i=0; i< 4; i++){
+        out << "R" << i*8 << ":\t";
+        for(int j=0; j<8; j++){
+            out << "\t" <<(*Register)[i*8 + j].value;
+        }
+        out << endl;
+    }
+    out << "716:\t";
+    for(int j=0; j<datacounter; j++){
+        out << Mem[j] << "\t";
+    }
+    out << endl;
+    out.close();
+}
+

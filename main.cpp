@@ -1,10 +1,95 @@
 #include "Tomasulo.h"
 #include <algorithm>
+#include <sstream>
 #include "assembly.h"
 using namespace std;
 
 int main(int argc, char ** argv){
-  string filename = "out.txt";
+    /*--------------------------ASSEMBLER-------------------------------
+     -------------------------------------------------------------------
+     --Read input .bin file and translate it into mid.txt---------------
+     -------------------------------------------------------------------*/
+    string helptxt="Usage: MIPSsim inputfilename outputfilename -Tm:n\n*Inputfilename - The file name of the binary input file.\n*Outputfilename - The file name to which to print the output.\n*-Tm:n -Argument to specify the start (m) and end (n) cycles of simulation tracing output. Tracing should be done in a single-step fashion with the contents of registers and memory shown after every processor cycle. -T0:0 indicates that no tracing is to be performed; eliminating the argument specifies that every cycle is to be traced.\n";
+
+    string inputfilename, outputfilename;
+    int startcycle, endcycle;
+    
+    
+    while(true){
+        string command,eachparameter,eachcycle;
+        
+        
+        cout << "COMMAND USAGE" << helptxt << endl;
+        cout << "-----------------------------------------------------------------" << endl;
+        cout << "Please input your command:" << endl;
+        getline(cin,command);
+        stringstream split(command);
+        
+        vector<string> token;
+        //split command input to parameters
+        while(getline(split,eachparameter,' ')){
+            token.push_back(eachparameter);
+        }
+        
+        //check if each parameter is correct
+        if(token.size() == 4  && token[0] == "MIPSsim"){
+            inputfilename = token[1];
+            outputfilename = token[2];
+            
+            string inputtype = inputfilename.substr(inputfilename.length()-3);
+            string outputtype = outputfilename.substr(outputfilename.length()-3);
+            
+            if(inputtype != "bin"){
+                cerr << "/////ERROR:Input file must be .bin file/////" << endl;
+                continue;
+            }
+            if(outputtype != "txt"){
+                cerr << "/////ERROR:Output file must be .txt file/////" << endl;
+                continue;
+            }
+            
+            //if exist, get start and end cycle
+            string temp = token[3];
+            if(temp[0] != '-' || temp[1]  != 'T'){
+                cerr << "/////ERROR:Fifth parameter should start with '-T'/////" << endl;
+                continue;
+            }
+            temp = temp.substr(2,temp.length()-1);
+            //check if there's only one colon
+            int coloncount = count(temp.begin(),temp.end(),':');
+            if(coloncount > 1){
+                cerr << "/////ERROR:Fifth parameter only has one ':'/////" << endl;
+                continue;
+            }
+            stringstream splitcycle(temp);
+            vector<string> cycles;
+            while(getline(splitcycle,eachcycle,':')){
+                cycles.push_back(eachcycle);
+            }
+            
+            startcycle = atoi(cycles[0].c_str());
+            endcycle = atoi(cycles[1].c_str());
+            break;
+        }
+        else{
+            cerr << "/////ERROR: Command should contain at least inputfile, outputfile and operation./////" << endl;
+        }
+    }
+    
+    
+    /*--------------------------------------------------------
+     * Disassembler Starts
+     * ------------------------------------------------------*/
+    
+        assembly(inputfilename);
+ 
+
+
+    /*--------------------------SIMULATOR-------------------------------
+     -------------------------------------------------------------------
+     --Read mid.txt and simulation cycle by cycle Tomasulo Algorithm ---
+     -------------------------------------------------------------------*/
+    string filename = "mid.txt";
   Tomasulo t;
   t.parseinputfile(filename);
 
@@ -33,16 +118,18 @@ int main(int argc, char ** argv){
   }
   PC = nextPC;
 
-  t.print_status(cycle);
+ // t.print_status(cycle);
 
+  //check if print this cycle
+  if(startcycle != 0 && endcycle != 0 && cycle >= startcycle && cycle <= endcycle){
+    t.print(outputfilename, cycle);
+  }
   cycle++;
     
   //begin cycle by cycle implementation    
   while(not_finished){
-    cout << "Cycle <" << cycle << "> starts here!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl; 
     
     
-   // cout << "***********fetching PC: "<< PC << endl;
     
     not_finished = false;
     //check if there are more instruction to fetch
@@ -57,9 +144,7 @@ int main(int argc, char ** argv){
           instruction = (*aiter).instruction;  
         }
       }
-    cout << "***********fetching PC in fetch: "<< PC << endl;
       nextPC = t.insfetch(cycle, PC, instruction);  //fetch one instruction, return nextPC to fetch
-    cout << "***********nextPC: "<< t.IQ->front().op << nextPC << endl;
    }
 
     /*-----------------------------
@@ -68,25 +153,19 @@ int main(int argc, char ** argv){
     if(t.rs_available() && t.rob_available() && !t.IQ->empty() && t.IQ->front().push_cycle < cycle){
 
        
-    cout << "**************problem?? "<< endl;
       t.rs_rob_add(t.IQ->front(), cycle);
-    cout << "**************problem??? "<< endl;
       t.IQ->pop_front();
-    cout << "**************problem???? "<< endl;
     }
     
     deque<RScontent>::iterator rsiter;
     for(rsiter = t.RS->begin(); rsiter != t.RS->end(); rsiter++){
-      cout << "*&*&*&*&- start EXE loop: " << (*rsiter).ins << endl;
       int rob_id = (*rsiter).Dest;
       deque<ROBcontent>::iterator robiter;
       bool exe;
     
              
       for(robiter = t.ROB->begin(); robiter != t.ROB->end(); robiter++){
-       // cout << "Start Second Loop" << endl;
         if((*robiter).Entry == rob_id){
-       // cout << "Start if" << endl;
           
           /*-----------------------------
           *-----Exe-------------------
@@ -102,7 +181,6 @@ int main(int argc, char ** argv){
             exe = false;
           }
 
-            //cout << "---------------------if EXE : "  << exe << endl;
          
           //sw
           if(!(*rsiter).op.compare("SW") && (*rsiter).Qj == 0 && exe){
@@ -119,12 +197,9 @@ int main(int argc, char ** argv){
             (*rsiter).current_status_cycle = cycle;
           }
           else if((*rsiter).op.compare("SW") && (*rsiter).Qj == 0 && (*rsiter).Qk == 0 && exe){
-            //cout << "---------------------Enter or not ??? "  << endl;
             if(!(*rsiter).op.compare("BNE")|| !(*rsiter).op.compare("BEQ") || !(*rsiter).op.compare("BGEZ") || !(*rsiter).op.compare("BGTZ") || !(*rsiter).op.compare("BLTZ") ||!(*rsiter).op.compare("BLEZ") ||!(*rsiter).op.compare("J")){
               
-              cout << "************test test test " << endl;
               bool btaken = t.checkbranch((*rsiter).op, (*rsiter).Vj, (*rsiter).Vk); 
-              cout << "************btaken "<< btaken << endl;
 
               int bresult, insaddr_temp;
               vector<AddrInspair>::iterator aiter;
@@ -135,21 +210,15 @@ int main(int argc, char ** argv){
               }
 
 
-              //cout << "***********branch addr  "<< insaddr_temp << endl;
-            //  bresult = t.calbranch((*rsiter).op, btaken, insaddr_temp, (*rsiter).A, (*rsiter).Vj, (*rsiter).Vk);
               int predictor;
               predictor = t.btbuffer->checkpredictor(insaddr_temp);
-             cout << "************branch predictor "<< predictor << endl;
             //new entry, update it only, nextPC doesn't change
               if(predictor == -1){
                 t.btbuffer->ChangePredictor(insaddr_temp, btaken);
                 if(btaken == true){
 
-             // cout << "***********test test test test "<< endl;
                   t.flushout_rs_rob(rob_id);
-             // cout << "***********test test test test "<< endl;
                   t.IQ->clear();
-             // cout << "***********aaaaaaaaaaaaaast test test test "<< endl;
                   nextPC = t.btbuffer->checktargetaddr(insaddr_temp);
                 }
               }
@@ -160,14 +229,10 @@ int main(int argc, char ** argv){
                 t.IQ->clear();
               }
               else if(predictor == 0 && btaken == true){
-               cout << "**********Enter P0BT condition" << endl;
                 t.flushout_rs_rob(rob_id);
-               cout << "**********Enter P0BT condition, flushed out" << endl;
                 t.IQ->clear();
-               cout << "**********Enter P0BT condition, IQ cleared" << endl;
                 t.btbuffer->ChangePredictor(insaddr_temp, btaken);
                 nextPC = t.btbuffer->checktargetaddr(insaddr_temp);
-               cout << "**********Enter P0BT condition: nextPC"<< nextPC << endl;
               }
               if((*robiter).state == Issue){
                 (*robiter).state = Exe;
@@ -177,8 +242,6 @@ int main(int argc, char ** argv){
               (*robiter).Ready = true;
               (*rsiter).Busy = false;
               t.btbuffer->ChangeLRU(insaddr_temp);
-             // cout << "***********nextPC  "<< nextPC << endl;
-             // cout << "@@@@@@@@@@@@@@@@@Reach here!!!!!! Branch EXE end"<< endl;
             }
           //LW
             else if(!(*rsiter).op.compare("LW")){
@@ -196,7 +259,6 @@ int main(int argc, char ** argv){
             else {
               int aresult;
               aresult = t.calalu((*rsiter).op, (*rsiter).Vj, (*rsiter).Vk);      
-              cout << (*rsiter).op << " " << (*rsiter).Vj << " " << (*rsiter).Vk << " result:" << aresult << endl;
               (*rsiter).value = aresult;
               if((*robiter).state == Issue){
                 (*robiter).state = Exe;
@@ -207,16 +269,13 @@ int main(int argc, char ** argv){
           }
         }
       }
-        // cout << "*&*&*&*&- end EXE loop: " << t.RS->size() << endl;
     }
 
 
-         cout << "*&*&*&*&- Write result start: " << t.RS->size() << endl;
           /*-----------------------------
           *-----Write Result------------
           * ---------------------------*/
       for(rsiter = t.RS->begin(); rsiter != t.RS->end();){
-        // cout << "*&*&*&*&- Start cycle : " << t.RS->size() << endl;
         int rob_id = (*rsiter).Dest;
         deque<ROBcontent>::iterator robiter;
         bool WR;
@@ -238,7 +297,6 @@ int main(int argc, char ** argv){
               WR = false;
             }
    
-            //  cout << "---------------------if write result??"  << WR << endl;
             if(!(*robiter).op.compare("SW") && WR){
               if((*rsiter).Qk == 0){
                 (*robiter).value = (*rsiter).Vk;
@@ -281,10 +339,8 @@ int main(int argc, char ** argv){
                  !(*rsiter).op.compare("BLTZ") || !(*rsiter).op.compare("BLEZ") ||
                  !(*rsiter).op.compare("J")) && WR){
               //simply erase this entry in RS
-              cout << "simply erase this entry in RS" << t.RS->size()<< endl;
               rsiter = t.RS->erase(rsiter);
               eraseflag = true;
-              cout << "simply erase this entry in RS" << t.RS->size()<< endl;
               break;
             }
             else if(WR) {
@@ -303,18 +359,13 @@ int main(int argc, char ** argv){
         if (!eraseflag) {
           rsiter ++;
         }
-       // cout << "*&*&*&*&- End cycle" << endl;
       }
     /*-----------------------------
      *-----Commit-------------------
      * ---------------------------*/
-       cout << "***********enter Commit :)" << endl;
     deque<RScontent>::iterator deiter;
       for(deiter = t.RS->begin(); deiter != t.RS->end();){
-       // cout << "------------------------" << (*deiter).Busy << "/" << (*deiter).current_status_cycle << "/" << (*deiter).ins << endl;
         if((*deiter).Busy == false && (*deiter).current_status_cycle < cycle){
-        // cout << "***************" << endl;
-         // //check if SW's source value available
           deiter = t.RS->erase(deiter);
         }
         else {
@@ -325,38 +376,32 @@ int main(int argc, char ** argv){
 
     
     if(t.ROB->front().state == Commit && t.ROB->front().current_status_cycle < cycle){
-      //TODO: do sth
+      //store
       if(!t.ROB->front().op.compare("SW") && t.ROB->front().source_ok == true){
 
         t.Mem[(t.ROB->front().addr - 716)/4] = t.ROB->front().value;
 
         t.updatelaterLW(t.ROB->front().addr, cycle);
       }
+      //regular ALU and LW, not branch , nop, break 
       else if(t.ROB->front().op.compare("BNE") && t.ROB->front().op.compare("BEQ") &&
                  t.ROB->front().op.compare("BGEZ") && t.ROB->front().op.compare("BGTZ") &&
                  t.ROB->front().op.compare("BLTZ") && t.ROB->front().op.compare("BLEZ") &&
-                 t.ROB->front().op.compare("J")){
+                 t.ROB->front().op.compare("J") && t.ROB->front().op.compare("NOP") && t.ROB->front().op.compare("BREAK")){
         int reg_id;
-        reg_id = StoI(t.ROB->front().Dest.substr(1));
+        reg_id = atoi(t.ROB->front().Dest.substr(1).c_str());
         (*t.Register)[reg_id].value = t.ROB->front().value;
         (*t.Register)[reg_id].h = -1;
         (*t.Register)[reg_id].Busy = false;
       }
-    // cout << "///////////////////////ROBlimit: " << t.ROB->size() << endl; 
      int prelimit = t.ROB->size(); 
      t.ROB->pop_front();
-    // cout << "///////////////////////ROBlimit: " << t.ROB->size() << endl; 
-    // t.ROBlimit++;
      int poslimit = t.ROB->size();
 
-    // cout << "///////////////////////IQ size: " << t.IQ->size() << endl; 
-     //if ins stays more than one cycle in IQ, push it into ROB & RS
      if(prelimit == 6 && poslimit == 5 && !t.IQ->empty() && t.IQ->front().push_cycle < cycle- 1){
        t.rs_rob_add(t.IQ->front(), cycle);
        t.IQ->pop_front();
-      // t.ROBlimit--;
      }
-    // cout << "///////////////////////ROBlimit: " << t.ROB->size() << endl; 
     }
     if(t.ROB->front().state != Commit && t.ROB->front().Ready == true && t.ROB->front().current_status_cycle < cycle){
       t.ROB->front().state = Commit;
@@ -368,10 +413,19 @@ int main(int argc, char ** argv){
     }
     PC = nextPC;
   
-    t.print_status(cycle);
-
+//    t.print_status(cycle);
+    if(startcycle != 0 && endcycle != 0 && cycle >= startcycle && cycle <= endcycle){
+      t.print(outputfilename, cycle);
+    }
     cycle++;
    }
+
+  //print final result only
+  if(startcycle == 0 && endcycle == 0){
+    t.print(outputfilename, cycle-1);
+  }
+
+  cout << "***********Simulation is Done. Please review results in file " << outputfilename << "*************"<< endl;
   return 0;
 }
 
